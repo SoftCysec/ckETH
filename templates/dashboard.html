@@ -1,0 +1,246 @@
+{% macro etherscan_address_link(address) -%}
+{% match ethereum_network %}
+{%- when EthereumNetwork::Sepolia -%}
+<a href="https://sepolia.etherscan.io/address/{{address}}"><code>{{address}}</code></a>
+{%- when EthereumNetwork::Mainnet -%}
+<a href="https://etherscan.io/address/{{address}}"><code>{{address}}</code></a>
+{% endmatch %}
+{%- endmacro %}
+
+{% macro etherscan_block_link(block_number) -%}
+{% match ethereum_network %}
+{%- when EthereumNetwork::Sepolia -%}
+<a
+    href="https://sepolia.etherscan.io/block/{{block_number.to_string_inner()}}"><code>{{block_number.to_string_inner()}}</code></a>
+{%- when EthereumNetwork::Mainnet -%}
+<a
+    href="https://etherscan.io/block/{{block_number.to_string_inner()}}"><code>{{block_number.to_string_inner()}}</code></a>
+{% endmatch %}
+{%- endmacro %}
+
+{% macro etherscan_tx_link(txhash) -%}
+{% match ethereum_network %}
+{%- when EthereumNetwork::Sepolia -%}
+<a href="https://sepolia.etherscan.io/tx/{{txhash}}"><code>{{txhash}}</code></a>
+{%- when EthereumNetwork::Mainnet -%}
+<a href="https://etherscan.io/tx/{{txhash}}"><code>{{txhash}}</code></a>
+{% endmatch %}
+{%- endmacro %}
+
+{% macro format_opt_timestamp(maybe_ts) -%}
+{% match maybe_ts %}
+{%- when Some with (ts) -%}
+{{ ts|timestamp_to_datetime }}
+{%- when None -%}
+N/A
+{% endmatch %}
+{%- endmacro %}
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>ckETH Minter Dashboard</title>
+    <style>
+        table {
+            border: solid;
+            text-align: left;
+            width: 100%;
+            border-width: thin;
+        }
+
+        h3 {
+            font-variant: small-caps;
+            margin-top: 30px;
+            margin-bottom: 5px;
+        }
+
+        table table {
+            font-size: small;
+        }
+
+        .background {
+            margin: 0;
+            padding: 0;
+        }
+
+        .content {
+            max-width: 100vw;
+            width: fit-content;
+            margin: 0 auto;
+        }
+
+        tbody tr:nth-child(odd) {
+            background-color: #eeeeee;
+        }
+
+        .numeric {
+            text-align: right;
+        }
+
+        #output-bytes32-principal-error {
+            color: red;
+            font-style: italic;
+        }
+
+        #output-bytes32-principal-ok {
+            margin-top: 10px;
+            font-family: monospace;
+        }
+
+        #input-principal {
+            width: 63ch;
+            font-family: monospace;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="background">
+        <div class="content">
+            <h3 id="metadata">Metadata</h3>
+            <table>
+                <tbody>
+                    <tr id="ethereum-network">
+                        <th>Ethereum Chain</th>
+                        <td><a
+                                href="https://github.com/ethereum-lists/chains/blob/master/_data/chains/eip155-{{ethereum_network.chain_id()}}.json">{{
+                                ethereum_network }}</a></td>
+                    </tr>
+                    <tr id="contract-address">
+                        <th>NFT contract address</th>
+                        <td>{% call etherscan_address_link(contract_address) %}</td>
+                    </tr>
+                    <tr id="minter-address">
+                        <th>Minter address</th>
+                        <td>{% call etherscan_address_link(minter_address) %}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Principal → Bytes32 conversion</h3>
+            <form id="form-principal-conversion">
+                Principal: <input id="input-principal" type="text">
+                <span id="output-bytes32-principal-error"></span>
+                <div id="output-bytes32-principal-ok"></div>
+            </form>
+
+            <h3>Block sync</h3>
+            <table>
+                <tbody>
+                    {% if last_observed_block.is_some() -%}
+                    <tr id="last-observed-block-number">
+                        <th>Last observed block number</th>
+                        <td>{% call etherscan_block_link(last_observed_block.unwrap()) %}</td>
+                    </tr>
+                    {%- endif %}
+                    <tr id="last-synced-block-number">
+                        <th>Last synced block number</th>
+                        <td>{% call etherscan_block_link(last_synced_block) %}</td>
+                    </tr>
+                    {% if !skipped_blocks.is_empty() -%}
+                    <tr id="skipped-blocks">
+                        <th>Skipped blocks</th>
+                        <td>{% for block in skipped_blocks -%}
+                            {% call etherscan_block_link(block) %}{% if !loop.last %}, {% endif %}
+                            {%- endfor %}</td>
+                    </tr>
+                    {%- endif %}
+                    <tr id="first-synced-block-number">
+                        <th>First synced block number</th>
+                        <td>{% call etherscan_block_link(first_synced_block) %}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+
+            {% if !events_to_mint.is_empty() %}
+            <h3 id="events-to-mint">Events to mint</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Txn Hash</th>
+                        <th>Log Index</th>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Token ID</th>
+                        <th>Block</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in events_to_mint -%}
+                    <tr>
+                        <td>{% call etherscan_tx_link(event.transaction_hash.to_string()) %}</td>
+                        <td class="numeric">{{ event.log_index }}</td>
+                        <td>{% call etherscan_address_link(event.from_address.to_string()) %}</td>
+                        <td>{% call etherscan_address_link(event.to_address.to_string()) %}</td>
+                        <td class="numeric">{{ event.token_id}}</td>
+                        <td class="numeric">{% call etherscan_block_link(event.block_number) %}</td>
+                    </tr>
+                    {%- endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+
+            {% if !minted_events.is_empty() %}
+            <h3 id="minted-events">Minted events</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Txn Hash</th>
+                        <th>Log Index</th>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Token ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in minted_events %}
+                    <tr>
+                        <td>{% call etherscan_tx_link(event.mint_event.transaction_hash.to_string()) %}</td>
+                        <td class="numeric">{{ event.mint_event.log_index }}</td>
+                        <td>{% call etherscan_address_link(event.mint_event.from_address.to_string()) %}</td>
+                        <td>{% call etherscan_address_link(event.mint_event.to_address.to_string()) %}</td>
+                        <td class="numeric">{{ event.mint_event.token_id}}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        {% include "principal_to_bytes.js" %}
+
+        window.addEventListener("load", function () {
+            document.getElementById("form-principal-conversion").addEventListener("keypress", function (event) {
+                if (event.keyCode == 13) {
+                    event.preventDefault();
+                    return false;
+                }
+            });
+
+            function recomputePrincipal(event) {
+                let input = event.target.value.trim();
+                let ok_output = document.getElementById("output-bytes32-principal-ok");
+                let err_output = document.getElementById("output-bytes32-principal-error");
+                try {
+                    let hex = principalToBytes32(input);
+                    ok_output.innerHTML = hex;
+                    err_output.innerHTML = "";
+                } catch (e) {
+                    ok_output.innerHTML = "";
+                    err_output.innerHTML = e.message;
+                }
+            }
+            let inputPrincipal = document.getElementById("input-principal");
+
+            inputPrincipal.addEventListener("change", recomputePrincipal);
+            inputPrincipal.addEventListener("keypress", recomputePrincipal);
+            inputPrincipal.addEventListener("input", recomputePrincipal);
+        });
+    </script>
+</body>
+
+</html>
